@@ -1,3 +1,4 @@
+/** Type definition of IGC meta data returned from parser */
 export type IGCHeader = {
   date?: Date;
   fixAccuracy?: number;
@@ -15,6 +16,7 @@ export type IGCHeader = {
   competitionClass?: string;
   security?: string;
 };
+/** Type definition of tracklog data returned from parser */
 export type IGCFix = {
   timestamp: Date;
   lat: number;
@@ -26,6 +28,7 @@ export type IGCFix = {
   activity?: string;
   phase?: string;
 };
+/** Type definition of parser return object */
 export type IGCData = {
   metadata: IGCHeader;
   trackPoints: IGCFix[];
