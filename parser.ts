@@ -160,6 +160,7 @@ export const parseFix = (
   };
 };
 
+/** This Function takes either a path to an igc file or the contents of the file and parses metadata (IGC header records) and tracklog fixes (IGC B records) */
 export const igcParser = async (
   { filepath, igcString }: { filepath?: string; igcString?: string },
 ): Promise<IGCData> => {
