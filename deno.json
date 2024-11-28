@@ -2,10 +2,12 @@
   "name": "@brian-greeson/igc-parser",
   "version": "0.1.0",
   "license": "MIT",
-  "exports": "./parser.ts",
+  "exports": "./igcParser.ts",
 
   "tasks": {
-    "dev": "deno run --watch main.ts"
+    "dev:watch": "deno run --watch parser.ts",
+    "dev": "deno run -A parser.ts",
+    "test": "deno test --allow-read"
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@1"
