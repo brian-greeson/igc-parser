@@ -199,4 +199,3 @@ export const igcParser = async (
 
   return { metadata, trackPoints };
 };
-// igcParse({ filepath: "./short.igc" });
