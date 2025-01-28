@@ -127,24 +127,44 @@ export const parseLongitude = (
 };
 
 export const parseFix = (
-  { line, activity, phase, date }: {
+  { line, activity, phase, date, prevTimestamp }: {
     line: string;
     activity?: string;
     phase?: string;
     date: Date;
+    prevTimestamp?: Date;
   },
 ): IGCFix | null => {
   const bRegex =
     /^B(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{3})([NS])(\d{3})(\d{2})(\d{3})([EW])([AV])(-\d{4}|\d{5})(-\d{4}|\d{5})/;
   const matches = line.match(bRegex);
   if (!matches) throw new Error("Invalid B record");
-  const [hours, minutes, seconds] = [matches[1], matches[2], matches[3]];
+  const [hours, minutes, seconds] = [
+    parseInt(matches[1]),
+    parseInt(matches[2]),
+    parseInt(matches[3]),
+  ];
   const valid = matches[12] === "A";
   if (!valid) return null;
+
+  const timestamp = new Date(`${date.toISOString().slice(0, 10)}`);
+
+  timestamp.setUTCHours(
+    hours,
+    minutes,
+    seconds,
+  );
+
+  const isNextDay = prevTimestamp
+    ? checkForDayRollover(prevTimestamp, timestamp)
+    : false;
+
+  if (isNextDay) {
+    timestamp.setDate(timestamp.getDate() + 1);
+  }
+
   return {
-    timestamp: new Date(
-      `${date.toISOString().slice(0, 10)}T${hours}:${minutes}:${seconds}Z`,
-    ),
+    timestamp,
     lat: parseLatitude(matches[4], matches[5], matches[6], matches[7]),
     long: parseLongitude(
       matches[8],
@@ -162,7 +182,9 @@ export const parseFix = (
       : parseInt(matches[14], 10),
   };
 };
-
+const checkForDayRollover = (prevTime: Date, currTime: Date) => {
+  return (currTime.getTime() < (prevTime.getTime() - (1000 * 60 * 60)));
+};
 /** This Function takes either a path to an igc file or the contents of the file and parses metadata (IGC header records) and tracklog fixes (IGC B records) */
 export const igcParser = async (
   { filepath, igcString }: { filepath?: string; igcString?: string },
@@ -196,6 +218,7 @@ export const igcParser = async (
         activity: lastActivity,
         phase: lastPhase,
         date: metadata.date ?? new Date(),
+        prevTimestamp: trackPoints[trackPoints.length - 1]?.timestamp,
       });
       if (fix) trackPoints.push(fix);
     }
