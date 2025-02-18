@@ -3,8 +3,10 @@ import {
   assertAlmostEquals,
   assertEquals,
   assertExists,
+  assertThrows,
 } from "@std/assert";
 import {
+  convertToGeoJSON,
   igcParser,
   parseFix,
   parseLatitude,
@@ -112,4 +114,193 @@ Deno.test("parseFix should return null for invalid fixes", () => {
   });
 
   assertEquals(fix, null);
+});
+
+Deno.test("convertToGeoJSON should throw error for empty trackPoints", () => {
+  assertThrows(
+    () => {
+      convertToGeoJSON([]);
+    },
+    Error,
+    "No trackPoints provided",
+  );
+});
+
+Deno.test("convertToGeoJSON should convert trackPoints to GeoJSON with default altitude offset", () => {
+  const sampleTrackPoints = [
+    {
+      timestamp: new Date("2024-01-01T12:00:00.000Z"),
+      lat: 46.85646666666667,
+      long: 8.343216666666667,
+      pressureAltitude: 1345,
+      gpsAltitude: 1414,
+      phase: "takingOff",
+      activity: "fly",
+    },
+    {
+      timestamp: new Date("2024-01-01T12:05:00.000Z"),
+      lat: 46.85700000000000,
+      long: 8.344000000000000,
+      pressureAltitude: undefined,
+      gpsAltitude: 1420,
+      phase: "soaring",
+      activity: "cruise",
+    },
+  ];
+
+  const geoJSON = convertToGeoJSON(sampleTrackPoints);
+
+  // Verify feature type and geometry type
+  assertEquals(geoJSON.type, "Feature");
+  assertEquals(geoJSON.geometry.type, "LineString");
+
+  // Check coordinates count
+  assertEquals(geoJSON.geometry.coordinates.length, sampleTrackPoints.length);
+
+  // Check first coordinate uses pressureAltitude (1345) without offset
+  const firstCoordinate = geoJSON.geometry.coordinates[0];
+  assertEquals(firstCoordinate[0], sampleTrackPoints[0].long);
+  assertEquals(firstCoordinate[1], sampleTrackPoints[0].lat);
+  assertEquals(firstCoordinate[2], 1345); // pressureAltitude
+
+  // Second coordinate uses gpsAltitude (1420) without offset
+  const secondCoordinate = geoJSON.geometry.coordinates[1];
+  assertEquals(secondCoordinate[0], sampleTrackPoints[1].long);
+  assertEquals(secondCoordinate[1], sampleTrackPoints[1].lat);
+  assertEquals(secondCoordinate[2], 1420); // gpsAltitude fallback
+
+  // Check properties arrays
+  assertEquals(geoJSON.properties.timestamps.length, sampleTrackPoints.length);
+  assertEquals(geoJSON.properties.phases[0], "takingOff");
+  assertEquals(geoJSON.properties.phases[1], "soaring");
+  assertEquals(geoJSON.properties.activities[0], "fly");
+  assertEquals(geoJSON.properties.activities[1], "cruise");
+
+  // Validate timestamp ISO strings
+  assertEquals(
+    geoJSON.properties.timestamps[0],
+    sampleTrackPoints[0].timestamp.toISOString(),
+  );
+  assertEquals(
+    geoJSON.properties.timestamps[1],
+    sampleTrackPoints[1].timestamp.toISOString(),
+  );
+});
+
+Deno.test("convertToGeoJSON should apply altitude offset", () => {
+  const altitudeOffset = 100;
+  const sampleTrackPoints = [
+    {
+      timestamp: new Date("2024-01-01T12:00:00.000Z"),
+      lat: 46.85646666666667,
+      long: 8.343216666666667,
+      pressureAltitude: 1345,
+      gpsAltitude: 1414,
+      phase: "takingOff",
+      activity: "fly",
+    },
+    {
+      timestamp: new Date("2024-01-01T12:05:00.000Z"),
+      lat: 46.85700000000000,
+      long: 8.344000000000000,
+      pressureAltitude: undefined,
+      gpsAltitude: 1420,
+      phase: "soaring",
+      activity: "cruise",
+    },
+  ];
+
+  const geoJSON = convertToGeoJSON(sampleTrackPoints, altitudeOffset);
+
+  // Check that altitude offset is applied on each coordinate altitude
+  const firstCoordinate = geoJSON.geometry.coordinates[0];
+  const secondCoordinate = geoJSON.geometry.coordinates[1];
+
+  // For first point, altitude is pressureAltitude (1345) + offset
+  assertEquals(firstCoordinate[2], 1345 + altitudeOffset);
+
+  // For second point, altitude is gpsAltitude (1420) + offset
+  assertEquals(secondCoordinate[2], 1420 + altitudeOffset);
+});
+
+Deno.test("convertToGeoJSON calculates verticalSpeeds correctly with no altitude offset", () => {
+  const sampleTrackPoints = [
+    {
+      timestamp: new Date("2024-01-01T12:00:00.000Z"),
+      lat: 46.0,
+      long: 8.0,
+      pressureAltitude: 1000,
+      gpsAltitude: 1010,
+      phase: "start",
+      activity: "takeOff",
+    },
+    {
+      timestamp: new Date("2024-01-01T12:01:00.000Z"),
+      lat: 46.001,
+      long: 8.001,
+      pressureAltitude: 1020,
+      gpsAltitude: 1030,
+      phase: "cruise",
+      activity: "fly",
+    },
+    {
+      timestamp: new Date("2024-01-01T12:02:00.000Z"),
+      lat: 46.002,
+      long: 8.002,
+      pressureAltitude: undefined,
+      gpsAltitude: 1040,
+      phase: "land",
+      activity: "landing",
+    },
+  ];
+
+  const geoJSON = convertToGeoJSON(sampleTrackPoints);
+  // Calculation:
+  // First point: altitude = preferredAltitude(1000) => 1000
+  // Second point: altitude = preferredAltitude(1020) => 1020; verticalSpeed = 1020 - 1000 = 20
+  // Third point: altitude = preferredAltitude(1040) (fallback to gpsAltitude) => 1040; verticalSpeed = 1040 - 1020 = 20
+
+  assertEquals(
+    geoJSON.properties.verticalSpeeds.length,
+    sampleTrackPoints.length,
+  );
+  assertEquals(geoJSON.properties.verticalSpeeds[0], 0);
+  assertEquals(geoJSON.properties.verticalSpeeds[1], 20);
+  assertEquals(geoJSON.properties.verticalSpeeds[2], 20);
+});
+
+Deno.test("convertToGeoJSON calculates verticalSpeeds correctly with altitude offset", () => {
+  const altitudeOffset = 50;
+  const sampleTrackPoints = [
+    {
+      timestamp: new Date("2024-01-01T12:00:00.000Z"),
+      lat: 46.0,
+      long: 8.0,
+      pressureAltitude: 1000,
+      gpsAltitude: 1010,
+      phase: "start",
+      activity: "takeOff",
+    },
+    {
+      timestamp: new Date("2024-01-01T12:01:00.000Z"),
+      lat: 46.001,
+      long: 8.001,
+      pressureAltitude: 1020,
+      gpsAltitude: 1030,
+      phase: "cruise",
+      activity: "fly",
+    },
+  ];
+
+  const geoJSON = convertToGeoJSON(sampleTrackPoints, altitudeOffset);
+  // Calculation:
+  // First point altitude = 1000 + 50 = 1050
+  // Second point altitude = 1020 + 50 = 1070; verticalSpeed = 1070 - 1050 = 20
+
+  assertEquals(
+    geoJSON.properties.verticalSpeeds.length,
+    sampleTrackPoints.length,
+  );
+  assertEquals(geoJSON.properties.verticalSpeeds[0], 0);
+  assertEquals(geoJSON.properties.verticalSpeeds[1], 20);
 });

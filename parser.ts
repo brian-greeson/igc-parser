@@ -28,10 +28,25 @@ export type IGCFix = {
   activity?: string;
   phase?: string;
 };
+/** Type definition of geojson return object */
+type GeoJSONFeature = {
+  type: "Feature";
+  geometry: {
+    type: "LineString";
+    coordinates: [number, number, number][]; // [long, lat, altitude]
+  };
+  properties: {
+    timestamps: string[]; // ISO timestamps for animation
+    phases: (string | null)[]; // Array of phases per point
+    activities: (string | null)[]; // Array of activities per point
+    verticalSpeeds: number[]; // Array of vertical speeds per point
+  };
+};
 /** Type definition of parser return object */
 export type IGCData = {
   metadata: IGCHeader;
   trackPoints: IGCFix[];
+  geoJSON: GeoJSONFeature;
 };
 
 export const parseMetadata = (igcLines: string[]) => {
@@ -185,6 +200,51 @@ export const parseFix = (
 const checkForDayRollover = (prevTime: Date, currTime: Date) => {
   return (currTime.getTime() < (prevTime.getTime() - (1000 * 60 * 60)));
 };
+
+const preferredAltitude = (fix: IGCFix) => {
+  return fix.pressureAltitude ?? fix.gpsAltitude ?? 0;
+};
+
+export const convertToGeoJSON = (
+  trackPoints: IGCFix[],
+  altitudeOffset: number = 0,
+): GeoJSONFeature => {
+  if (trackPoints.length === 0) {
+    throw new Error("No trackPoints provided");
+  }
+
+  const coordinates: [number, number, number][] = [];
+  const timestamps: string[] = [];
+  const phases: (string | null)[] = [];
+  const activities: (string | null)[] = [];
+  const verticalSpeeds: number[] = [];
+  for (let i = 0; i < trackPoints.length; i++) {
+    const point = trackPoints[i];
+    const altitude = preferredAltitude(point) + altitudeOffset;
+    coordinates.push([point.long, point.lat, altitude]);
+    timestamps.push(point.timestamp.toISOString());
+    phases.push(point.phase ?? null);
+    activities.push(point.activity ?? null);
+    // Calculate vario as the difference in altitude between the current and previous point. if this is the first point, set vario to 0
+    const prevAltitude = i > 0 ? coordinates[i - 1][2] : altitude;
+    verticalSpeeds.push(altitude - prevAltitude);
+  }
+
+  return {
+    type: "Feature",
+    geometry: {
+      type: "LineString",
+      coordinates,
+    },
+    properties: {
+      timestamps,
+      phases,
+      activities,
+      verticalSpeeds,
+    },
+  };
+};
+
 /** This Function takes either a path to an igc file or the contents of the file and parses metadata (IGC header records) and tracklog fixes (IGC B records) */
 export const igcParser = async (
   { filepath, igcString }: { filepath?: string; igcString?: string },
@@ -223,6 +283,6 @@ export const igcParser = async (
       if (fix) trackPoints.push(fix);
     }
   }
-
-  return { metadata, trackPoints };
+  const geoJSON = convertToGeoJSON(trackPoints);
+  return { metadata, trackPoints, geoJSON };
 };
