@@ -21,7 +21,6 @@ export type IGCFix = {
   timestamp: Date;
   lat: number;
   long: number;
-  alt?: number;
   fixAccuracy?: number;
   pressureAltitude?: number;
   gpsAltitude?: number;
